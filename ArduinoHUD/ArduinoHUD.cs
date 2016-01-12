@@ -37,6 +37,7 @@ namespace ArduinoHUD
         private int PlayerArmor = -1;
         private float VehicleBodyHealth = -1;
         private float VehicleEngineHealth = -1;
+        private int WantedLevel = -1;
 
         public ArduinoHUD()
         {
@@ -62,6 +63,12 @@ namespace ArduinoHUD
         {
             if (ArduinoInterface.IsAvailable())
             {
+                if (WantedLevel != Game.Player.WantedLevel)
+                {
+                    WantedLevel = Game.Player.WantedLevel;
+                    ArduinoInterface.SetLEDCount(WantedLevel);
+                }
+
                 Ped player = Game.Player.Character;
                 if (player.Exists())
                 {

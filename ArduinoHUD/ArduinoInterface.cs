@@ -7,7 +7,8 @@ namespace ArduinoHUD
     {
         StartCommand = 10,
         Clear = 1,
-        SetCursor = 2
+        SetCursor = 2,
+        SetLEDCount = 3
     }
     static class ArduinoInterface
     {
@@ -44,6 +45,15 @@ namespace ArduinoHUD
             commandBytes[1] = Convert.ToByte(SerialCommand.SetCursor);
             commandBytes[2] = Convert.ToByte(column);
             commandBytes[3] = Convert.ToByte(row);
+            SendSerialCommand(commandBytes);
+        }
+
+        public static void SetLEDCount(int count)
+        {
+            byte[] commandBytes = new byte[3];
+            commandBytes[0] = Convert.ToByte(SerialCommand.StartCommand);
+            commandBytes[1] = Convert.ToByte(SerialCommand.SetLEDCount);
+            commandBytes[2] = Convert.ToByte(count);
             SendSerialCommand(commandBytes);
         }
 
