@@ -165,7 +165,7 @@ namespace ArduinoHUD
                     case HUDCycle.WorldInfo:
                         DateTime currentTime = new DateTime(World.CurrentDayTime.Ticks);
                         ArduinoInterface.SetCursor(0, 0);
-                        ArduinoInterface.Print((currentTime.ToString(Preferences.HourFormat == "12h" ? "h:mmtt" : "HH:mm").ToLower() + " - " + WorldExtension.Weather).MinLength(12));
+                        ArduinoInterface.Print((currentTime.ToString(Preferences.HourFormat == "12h" ? "h:mmtt" : "HH:mm").ToLower() + " - " + World.Weather).MinLength(12));
                         ArduinoInterface.SetCursor(0, 1);
                         ArduinoInterface.Print(World.GetZoneName(player.Position).MinLength(12));
                         break;
