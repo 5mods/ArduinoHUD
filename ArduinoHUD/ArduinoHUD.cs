@@ -11,30 +11,61 @@ namespace ArduinoHUD
             Unknown = -1,
             Wasted,
             Busted,
-            WorldInfo,
+            InfoCycle
+        }
+
+        private enum HUDCycle
+        {
+            WorldInfo = 0,
             PlayerHealth,
             VehicleSpeed,
-            VehicleHealth
+            VehicleHealth,
+            Count
         }
+
+        private enum ToggleFormat
+        {
+            Timer,
+            Arduino
+        }
+
         private struct HUDPreferences
         {
             public String HourFormat;
             public String SpeedFormat;
+            public ToggleFormat ToggleFormat; 
 
-            public HUDPreferences(String hourFormat, String speedFormat)
+            public HUDPreferences(String hourFormat, String speedFormat, String toggleFormat)
             {
                 HourFormat = (hourFormat == "24h" || hourFormat == "12h" ? hourFormat : "24h");
                 SpeedFormat = (speedFormat == "kmh" || speedFormat == "mph" ? speedFormat : "kmh");
+                if (toggleFormat == "ARDUINO")
+                {
+                    ToggleFormat = ToggleFormat.Arduino;
+                }
+                else
+                {
+                    ToggleFormat = ToggleFormat.Timer;
+                }
+            }
+
+            public Boolean PrefersTimer()
+            {
+                return ToggleFormat == ToggleFormat.Timer;
             }
         }
 
         private int Timer = 0;
         private const int MaxRotatingStateLength = 5000;
-        private HUDState state = HUDState.Unknown;
+
+        private HUDState State = HUDState.Unknown;
+        private HUDCycle Cycle = HUDCycle.WorldInfo;
+        private Boolean CycleChanged = false;
         private HUDPreferences Preferences;
 
         private int PlayerHealth = -1;
         private int PlayerArmor = -1;
+        private Boolean IsInVehicle = false;
         private float VehicleBodyHealth = -1;
         private float VehicleEngineHealth = -1;
         private int WantedLevel = -1;
@@ -48,12 +79,15 @@ namespace ArduinoHUD
                 localSettings.GetValue<int>("Settings", "BaudRate", 9600)
             );
 
+            ArduinoInterface.Toggled += ArduinoInterface_Toggled;
+
             Preferences = new HUDPreferences(
                 localSettings.GetValue("Preferences", "HourFormat", "24h"),
-                localSettings.GetValue("Preferences", "SpeedFormat", "kmh")
+                localSettings.GetValue("Preferences", "SpeedFormat", "kmh"),
+                localSettings.GetValue("Preferences", "ToggleFormat", "TIMER")
             );
 
-            SetHUDState(HUDState.WorldInfo);
+            SetHUDState(HUDState.InfoCycle);
 
             Interval = 500;
             Tick += OnTick;
@@ -74,118 +108,20 @@ namespace ArduinoHUD
                 {
                     if (player.IsAlive)
                     {
-                        if (Function.Call<bool>(Hash.IS_PLAYER_BEING_ARRESTED, player, true))
+                        if (Function.Call<bool>(Hash.IS_PLAYER_BEING_ARRESTED, Game.Player.Handle, true))
                         {
                             SetHUDState(HUDState.Busted);
                         }
-                        else if (player.IsInVehicle())
-                        {
-                            Vehicle vehicle = player.CurrentVehicle;
-
-                            Boolean stateChanged = false;
-                            if (Timer >= MaxRotatingStateLength)
-                            {
-                                if (state == HUDState.VehicleHealth)
-                                {
-                                    SetHUDState(HUDState.VehicleSpeed);
-                                }
-                                else
-                                {
-                                    SetHUDState(HUDState.VehicleHealth);
-                                }
-
-                                stateChanged = true;
-                            }
-                            else if (state != HUDState.VehicleHealth && state != HUDState.VehicleSpeed)
-                            {
-                                stateChanged = SetHUDState(HUDState.VehicleSpeed);
-                            }
-
-                            switch (state)
-                            {
-                                case HUDState.VehicleSpeed:
-                                    if (stateChanged)
-                                    {
-                                        ArduinoInterface.SetCursor(0, 0);
-                                        ArduinoInterface.Print(vehicle.FriendlyName);
-                                    }
-
-                                    ArduinoInterface.SetCursor(0, 1);
-                                    float speed = vehicle.Speed;
-                                    if (Preferences.SpeedFormat == "mph")
-                                    {
-                                        speed *= 2.236936292054f;
-                                    }
-                                    else
-                                    {
-                                        speed *= 3.6f;
-                                    }
-
-                                    ArduinoInterface.Print("Speed: " + (Math.Round(speed).ToString() + Preferences.SpeedFormat).MinLength(6));
-                                    break;
-
-                                case HUDState.VehicleHealth:
-                                    if (vehicle.BodyHealth != VehicleBodyHealth)
-                                    {
-                                        VehicleBodyHealth = vehicle.BodyHealth;
-                                        ArduinoInterface.SetCursor(8, 0);
-                                        ArduinoInterface.Print((Math.Round(VehicleBodyHealth / 10).ToString() + "%").MinLength(4));
-                                    }
-
-                                    if (vehicle.EngineHealth != VehicleEngineHealth)
-                                    {
-                                        VehicleEngineHealth = vehicle.EngineHealth;
-                                        ArduinoInterface.SetCursor(8, 1);
-                                        ArduinoInterface.Print((Math.Round(VehicleEngineHealth / 10).ToString() + "%").MinLength(4));
-                                    }
-
-                                    break;
-                            }
-                        }
                         else
                         {
-                            if (Timer >= MaxRotatingStateLength)
+                            SetHUDState(HUDState.InfoCycle);
+                            CheckCycle();
+                            UpdateInfo();
+
+                            if (Preferences.PrefersTimer())
                             {
-                                if (state == HUDState.WorldInfo)
-                                {
-                                    SetHUDState(HUDState.PlayerHealth);
-                                }
-                                else
-                                {
-                                    SetHUDState(HUDState.WorldInfo);
-                                }
-                            }
-                            else if (state != HUDState.WorldInfo && state != HUDState.PlayerHealth)
-                            {
-                                SetHUDState(HUDState.WorldInfo);
-                            }
-
-                            switch (state)
-                            {
-                                case HUDState.WorldInfo:
-                                    DateTime currentTime = new DateTime(World.CurrentDayTime.Ticks);
-                                    ArduinoInterface.SetCursor(0, 0);
-                                    ArduinoInterface.Print((currentTime.ToString(Preferences.HourFormat == "12h" ? "h:mmtt" : "HH:mm").ToLower() + " - " + WorldExtension.Weather).MinLength(12));
-                                    ArduinoInterface.SetCursor(0, 1);
-                                    ArduinoInterface.Print(World.GetZoneName(player.Position).MinLength(12));
-                                    break;
-
-                                case HUDState.PlayerHealth:
-                                    if (player.Health != PlayerHealth)
-                                    {
-                                        PlayerHealth = player.Health;
-                                        ArduinoInterface.SetCursor(8, 0);
-                                        ArduinoInterface.Print((PlayerHealth.ToString() + "%").MinLength(4));
-                                    }
-
-                                    if (player.Armor != PlayerArmor)
-                                    {
-                                        PlayerArmor = player.Armor;
-                                        ArduinoInterface.SetCursor(8, 1);
-                                        ArduinoInterface.Print((PlayerArmor.ToString() + "%").MinLength(4));
-                                    }
-
-                                    break;
+                                Timer += Interval;
+                                CheckTimer();
                             }
                         }
                     }
@@ -195,40 +131,161 @@ namespace ArduinoHUD
                     }
                 }
             }
+        }
 
-            Timer += Interval;
+        private void CheckCycle()
+        {
+            Ped player = Game.Player.Character;
+
+            if (player.IsInVehicle() != IsInVehicle)
+            {
+                IsInVehicle = player.IsInVehicle();
+                if (IsInVehicle)
+                {
+                    GoToCycle(HUDCycle.VehicleSpeed);
+                    CycleChanged = true;
+                }
+            }
+
+            if (Cycle >= HUDCycle.VehicleSpeed && !IsInVehicle)
+            {
+                GoToCycle(HUDCycle.WorldInfo);
+            }
+        }
+
+        private void UpdateInfo()
+        {
+            Ped player = Game.Player.Character;
+            if (player.Exists() && player.IsAlive)
+            {
+                Vehicle vehicle = (player.IsInVehicle() ? player.CurrentVehicle : null);
+
+                switch (Cycle)
+                {
+                    case HUDCycle.WorldInfo:
+                        DateTime currentTime = new DateTime(World.CurrentDayTime.Ticks);
+                        ArduinoInterface.SetCursor(0, 0);
+                        ArduinoInterface.Print((currentTime.ToString(Preferences.HourFormat == "12h" ? "h:mmtt" : "HH:mm").ToLower() + " - " + WorldExtension.Weather).MinLength(12));
+                        ArduinoInterface.SetCursor(0, 1);
+                        ArduinoInterface.Print(World.GetZoneName(player.Position).MinLength(12));
+                        break;
+
+                    case HUDCycle.PlayerHealth:
+                        if (player.Health != PlayerHealth)
+                        {
+                            PlayerHealth = player.Health;
+                            ArduinoInterface.SetCursor(0, 0);
+                            ArduinoInterface.Print(("Health: " + PlayerHealth.ToString() + "%").MinLength(12));
+                        }
+
+                        if (player.Armor != PlayerArmor)
+                        {
+                            PlayerArmor = player.Armor;
+                            ArduinoInterface.SetCursor(0, 1);
+                            ArduinoInterface.Print((" Armor: " + PlayerArmor.ToString() + "%").MinLength(12));
+                        }
+
+                        break;
+
+                    case HUDCycle.VehicleSpeed:
+                        if (vehicle != null)
+                        {
+                            if (CycleChanged)
+                            {
+                                ArduinoInterface.SetCursor(0, 0);
+                                ArduinoInterface.Print(vehicle.FriendlyName);
+                            }
+
+                            ArduinoInterface.SetCursor(0, 1);
+                            float speed = vehicle.Speed;
+                            if (Preferences.SpeedFormat == "mph")
+                            {
+                                speed *= 2.236936292054f;
+                            }
+                            else
+                            {
+                                speed *= 3.6f;
+                            }
+
+                            ArduinoInterface.Print("Speed: " + (Math.Round(speed).ToString() + Preferences.SpeedFormat).MinLength(6));
+                        }
+                        else
+                        {
+                            GoToCycle(HUDCycle.WorldInfo);
+                        }
+
+                        break;
+
+                    case HUDCycle.VehicleHealth:
+                        if (vehicle != null)
+                        {
+                            if (vehicle.BodyHealth != VehicleBodyHealth)
+                            {
+                                VehicleBodyHealth = vehicle.BodyHealth;
+                                ArduinoInterface.SetCursor(0, 0);
+                                ArduinoInterface.Print(("  Body: " + Math.Round(VehicleBodyHealth / 10).ToString() + "%").MinLength(12));
+                            }
+
+                            if (vehicle.EngineHealth != VehicleEngineHealth)
+                            {
+                                VehicleEngineHealth = vehicle.EngineHealth;
+                                ArduinoInterface.SetCursor(0, 1);
+                                ArduinoInterface.Print(("Engine: " + Math.Round(VehicleEngineHealth / 10).ToString() + "%").MinLength(12));
+                            }
+                        }
+                        else
+                        {
+                            GoToCycle(HUDCycle.WorldInfo);
+                        }
+
+                        break;
+                }
+            }
+
+            CycleChanged = false;
+        }
+
+        private void GoToNextInCycle()
+        {
+            GoToCycle(Cycle + 1 == HUDCycle.Count ? 0 : Cycle + 1);
+        }
+
+        private void GoToCycle(HUDCycle newCycle, Boolean forced = false)
+        {
+            if (newCycle != Cycle || forced)
+            {
+                ArduinoInterface.Clear();
+
+                Timer = 0;
+                PlayerHealth = -1;
+                PlayerArmor = -1;
+                VehicleBodyHealth = -1;
+                VehicleEngineHealth = -1;
+
+                Cycle = newCycle;
+                CycleChanged = true;
+            }
         }
 
         private Boolean SetHUDState(HUDState newState)
         {
-            if (newState != state)
+            if (newState != State)
             {
                 ArduinoInterface.Clear();
-                Timer = 0;
 
-                state = newState;
-                switch (state)
+                State = newState;
+                switch (State)
                 {
                     case HUDState.Wasted:
                         ArduinoInterface.Print("WASTED");
                         break;
 
-                    case HUDState.PlayerHealth:
-                        PlayerHealth = -1;
-                        PlayerArmor = -1;
-                        ArduinoInterface.SetCursor(0, 0);
-                        ArduinoInterface.Print("Health: 0%");
-                        ArduinoInterface.SetCursor(0, 1);
-                        ArduinoInterface.Print(" Armor: 0%");
+                    case HUDState.Busted:
+                        ArduinoInterface.Print("BUSTED");
                         break;
 
-                    case HUDState.VehicleHealth:
-                        VehicleBodyHealth = -1;
-                        VehicleEngineHealth = -1;
-                        ArduinoInterface.SetCursor(0, 0);
-                        ArduinoInterface.Print("  Body: 0%");
-                        ArduinoInterface.SetCursor(0, 1);
-                        ArduinoInterface.Print("Engine: 0%");
+                    case HUDState.InfoCycle:
+                        GoToCycle(Game.Player.Character.IsInVehicle() ? HUDCycle.VehicleSpeed : HUDCycle.WorldInfo, true);
                         break;
                 }
 
@@ -236,6 +293,19 @@ namespace ArduinoHUD
             }
 
             return false;
+        }
+
+        private void CheckTimer()
+        {
+            if (Timer >= MaxRotatingStateLength)
+            {
+                GoToNextInCycle();
+            }
+        }
+
+        private void ArduinoInterface_Toggled()
+        {
+            GoToNextInCycle();
         }
     }
 }
