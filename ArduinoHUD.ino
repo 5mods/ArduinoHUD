@@ -33,6 +33,8 @@ const int LED3_PIN        = 9;
 const int LED4_PIN        = 8;
 const int LED5_PIN        = 7;
 
+const int BUTTON_PIN      = 6;
+
 /*
  * No edits necessary beyond this point
  */
@@ -51,15 +53,39 @@ void setup() {
   digitalWrite(LED4_PIN, LOW);
   pinMode(LED5_PIN, OUTPUT);
   digitalWrite(LED5_PIN, LOW);
+
+  pinMode(BUTTON_PIN, INPUT);
 }
 
 const int COMMAND_START = 10;
 const int COMMAND_CLEAR = 1;
 const int COMMAND_SET_CURSOR = 2;
 const int COMMAND_SET_LED_COUNT = 3;
+const int COMMAND_TOGGLE = 4;
+
+int buttonState = HIGH;
+int buttonReading;
+int previousButtonReading;
+long lastButtonToggleTime = 0;
+const int BUTTON_DEBOUNCE = 200;
 
 int incomingByte = 0;
+
 void loop() {
+  buttonReading = digitalRead(BUTTON_PIN);
+  if (buttonReading == HIGH && previousButtonReading == LOW && millis() - lastButtonToggleTime > BUTTON_DEBOUNCE) {
+    if (buttonState == HIGH) {
+      buttonState = LOW;
+    } else {
+      buttonState = HIGH;
+    }
+
+    lastButtonToggleTime = millis();
+    sendCommand(COMMAND_TOGGLE);
+  }
+  
+  previousButtonReading = buttonReading;
+    
   if (Serial.available()) {
     delay(10);
     
@@ -96,3 +122,12 @@ void loop() {
     }
   }
 }
+
+void sendCommand(int command) {
+  if (Serial.availableForWrite()) {
+    Serial.write(COMMAND_START);
+    Serial.write(command);
+    delay(500);
+  }
+}
+
